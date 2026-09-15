@@ -13,16 +13,25 @@ import os
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from env import TOOLS, parse_answer, parse_call, reward, run_tool
+from env import TOOL_SCHEMAS, parse_answer, parse_call, reward, run_tool
 
-SYS = (
-    "你是客服工具调用助手。看到用户问题后：\n"
-    "第一步：只输出一次工具调用，格式严格为 <tool_call>{\"name\": \"工具名\", \"args\": {...}}</tool_call>\n"
-    "可用工具：" + json.dumps(TOOLS, ensure_ascii=False) + "\n"
-    "第二步：看到工具返回结果后，用 <answer>...</answer> 给出简洁回答，如实转述工具结果。"
-)
-FEWSHOT = ("用户：帮我查一下订单 SO20260810001 的物流\n"
-           "第一步：<tool_call>{\"name\": \"track_logistics\", \"args\": {\"order_id\": \"SO20260810001\"}}</tool_call>")
+SYS = "你是云雀商城的客服助手。请使用提供的工具查询真实数据后再回答，不要凭空编造。"
+
+# 用 Qwen 原生的工具调用模板：把 tools 交给 apply_chat_template，
+# 模型就会用它在训练时见过的 <tool_call> 格式（注意是 arguments 不是 args）
+def build_prompt_step1(tok, question: str) -> str:
+    return tok.apply_chat_template(
+        [{"role": "system", "content": SYS}, {"role": "user", "content": question}],
+        tools=TOOL_SCHEMAS, tokenize=False, add_generation_prompt=True)
+
+
+def build_prompt_step2(tok, question: str, step1: str, observation: dict, tool_name: str) -> str:
+    return tok.apply_chat_template(
+        [{"role": "system", "content": SYS},
+         {"role": "user", "content": question},
+         {"role": "assistant", "content": step1},
+         {"role": "tool", "name": tool_name, "content": json.dumps(observation, ensure_ascii=False)}],
+        tools=TOOL_SCHEMAS, tokenize=False, add_generation_prompt=True)
 
 
 def load(path: str):
@@ -36,12 +45,6 @@ def load(path: str):
         model = AutoModelForCausalLM.from_pretrained(path, torch_dtype=torch.bfloat16, **kw)
     model.eval()
     return model, tok
-
-
-def chat(tok, system: str, user: str) -> str:
-    return tok.apply_chat_template(
-        [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        tokenize=False, add_generation_prompt=True)
 
 
 @torch.no_grad()
@@ -73,14 +76,13 @@ def main() -> None:
     for i, t in enumerate(tasks, 1):
         for k in range(a.n):
             # ---- 第 1 步：模型给工具调用 ----
-            p1 = chat(tok, SYS, FEWSHOT + "\n\n用户：" + t["question"] + "\n第一步：")
+            p1 = build_prompt_step1(tok, t["question"])
             step1 = gen(model, tok, p1, a.max_new_tokens, a.temperature)
             name, args = parse_call(step1)
             # ---- 环境执行 ----
             obs = run_tool(name, args) if name else {"error": "no tool call"}
             # ---- 第 2 步：模型据结果作答 ----
-            p2 = chat(tok, SYS, FEWSHOT + "\n\n用户：" + t["question"]
-                      + "\n第一步：" + step1 + "\n工具返回：" + json.dumps(obs, ensure_ascii=False) + "\n第二步：")
+            p2 = build_prompt_step2(tok, t["question"], step1, obs, name or "unknown")
             step2 = gen(model, tok, p2, a.max_new_tokens, a.temperature)
 
             score, detail = reward(step1, step2, t["gold_tool"], t["gold_args"], t["gold_entities"])

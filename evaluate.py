@@ -14,16 +14,15 @@ import torch
 from peft import PeftModel
 
 from env import parse_call, reward, run_tool
-from rollout import FEWSHOT, SYS, chat, gen, load
+from rollout import build_prompt_step1, build_prompt_step2, gen, load
 
 
 def rollout_once(model, tok, task: dict, max_new_tokens: int) -> dict:
-    p1 = chat(tok, SYS, FEWSHOT + "\n\n用户：" + task["question"] + "\n第一步：")
+    p1 = build_prompt_step1(tok, task["question"])
     step1 = gen(model, tok, p1, max_new_tokens, temperature=0.0)     # 贪心
     name, args = parse_call(step1)
     obs = run_tool(name, args) if name else {"error": "no tool call"}
-    p2 = chat(tok, SYS, FEWSHOT + "\n\n用户：" + task["question"]
-              + "\n第一步：" + step1 + "\n工具返回：" + json.dumps(obs, ensure_ascii=False) + "\n第二步：")
+    p2 = build_prompt_step2(tok, task["question"], step1, obs, name or "unknown")
     step2 = gen(model, tok, p2, max_new_tokens, temperature=0.0)
     score, detail = reward(step1, step2, task["gold_tool"], task["gold_args"], task["gold_entities"])
     return {"question": task["question"], "step1": step1, "step2": step2,

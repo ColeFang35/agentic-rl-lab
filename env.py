@@ -32,6 +32,17 @@ _FAQ = {
     "发票": "支持开具电子发票，下单后可申请。",
 }
 
+# 传给 apply_chat_template 的工具 schema（OpenAI 风格）——让模型用它"训练时的格式"输出
+TOOL_SCHEMAS = [
+    {"type": "function", "function": {
+        "name": t["name"], "description": t["desc"],
+        "parameters": {"type": "object",
+                       "properties": {k: {"type": "string", "description": v}
+                                      for k, v in t["args"].items()},
+                       "required": list(t["args"].keys())}}}
+    for t in TOOLS
+]
+
 TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
 ANSWER_RE = re.compile(r"<answer>\s*(.*?)\s*</answer>", re.S)
 
@@ -70,7 +81,7 @@ def parse_call(text: str) -> tuple[str | None, dict]:
         return None, {}
     try:
         d = json.loads(m.group(1))
-        return d.get("name"), (d.get("args") or {})
+        return d.get("name"), (d.get("arguments") or d.get("args") or {})
     except ValueError:
         return None, {}
 
