@@ -1,0 +1,9 @@
+# ⚠️ AutoDL 镜像自带 torch，别升级它（会打乱 torchvision，报 torchvision::nms 不存在）
+# 若已报该错：pip uninstall -y torchvision
+transformers>=4.44
+peft>=0.12
+bitsandbytes>=0.43
+datasets>=2.20
+accelerate>=0.33
+trl>=0.9          # DPO 需要
+sentencepiece
