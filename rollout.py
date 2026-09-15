@@ -15,23 +15,43 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from env import TOOL_SCHEMAS, parse_answer, parse_call, reward, run_tool
 
-SYS = "你是云雀商城的客服助手。请使用提供的工具查询真实数据后再回答，不要凭空编造。"
+SYS = (
+    "你是云雀商城的客服助手。\n"
+    "【硬性规则】\n"
+    "1. 无论用户问什么，你都必须先调用一个工具去获取真实数据，禁止直接凭记忆回答；\n"
+    "2. 第一步只输出一次工具调用，格式严格如下（注意是 arguments）：\n"
+    "   <tool_call>\n"
+    '   {"name": "工具名", "arguments": {"参数名": "参数值"}}\n'
+    "   </tool_call>\n"
+    "3. 工具返回结果后，再基于结果用简洁中文回答，不要编造数据。"
+)
 
-# 用 Qwen 原生的工具调用模板：把 tools 交给 apply_chat_template，
-# 模型就会用它在训练时见过的 <tool_call> 格式（注意是 arguments 不是 args）
+# 一条完整的同格式示范（小模型学格式最有效的手段：看一遍完整对话）
+FEWSHOT = [
+    {"role": "user", "content": "帮我查一下订单 SO20260810001 的物流"},
+    {"role": "assistant", "content":
+        '<tool_call>\n{"name": "track_logistics", "arguments": {"order_id": "SO20260810001"}}\n</tool_call>'},
+    {"role": "tool", "name": "track_logistics",
+     "content": '{"found": true, "order_id": "SO20260810001", "status": "已发货", "carrier": "云雀速运"}'},
+    {"role": "assistant", "content": "订单 SO20260810001 已发货，由云雀速运承运。"},
+]
+
+
 def build_prompt_step1(tok, question: str) -> str:
-    return tok.apply_chat_template(
-        [{"role": "system", "content": SYS}, {"role": "user", "content": question}],
-        tools=TOOL_SCHEMAS, tokenize=False, add_generation_prompt=True)
+    msgs = ([{"role": "system", "content": SYS}] + FEWSHOT
+            + [{"role": "user", "content": question}])
+    return tok.apply_chat_template(msgs, tools=TOOL_SCHEMAS, tokenize=False,
+                                   add_generation_prompt=True)
 
 
 def build_prompt_step2(tok, question: str, step1: str, observation: dict, tool_name: str) -> str:
-    return tok.apply_chat_template(
-        [{"role": "system", "content": SYS},
-         {"role": "user", "content": question},
-         {"role": "assistant", "content": step1},
-         {"role": "tool", "name": tool_name, "content": json.dumps(observation, ensure_ascii=False)}],
-        tools=TOOL_SCHEMAS, tokenize=False, add_generation_prompt=True)
+    msgs = ([{"role": "system", "content": SYS}] + FEWSHOT
+            + [{"role": "user", "content": question},
+               {"role": "assistant", "content": step1},
+               {"role": "tool", "name": tool_name,
+                "content": json.dumps(observation, ensure_ascii=False)}])
+    return tok.apply_chat_template(msgs, tools=TOOL_SCHEMAS, tokenize=False,
+                                   add_generation_prompt=True)
 
 
 def load(path: str):
