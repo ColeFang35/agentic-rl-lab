@@ -84,7 +84,7 @@ def main() -> None:
     perfect = sum(1 for g in by_task.values() if any(x["score"] >= a.perfect_score for x in g))
     print(f"\n任务数 {n_tasks}：其中满分任务 {perfect}（{perfect/n_tasks:.0%}）；"
           f"得分 >= {a.pass_score} 的任务 {ok_tasks}（{ok_tasks/n_tasks:.0%}）")
-    print("→ 达标轨迹作为 RFT 种子；同题"优/劣并存"构成 DPO 偏好对。")
+    print("→ 达标轨迹作为 RFT 种子；同题优/劣并存的任务构成 DPO 偏好对。")
 
 
 if __name__ == "__main__":
