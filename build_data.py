@@ -21,11 +21,24 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--rollouts", default="data/rollouts.jsonl")
     ap.add_argument("--out-dir", default="data")
-    ap.add_argument("--pass-score", type=float, default=0.999, help="视为满分/成功的分数阈值")
+    ap.add_argument("--pass-score", type=float, default=0.7,
+                    help="RFT 种子阈值：得分 >= 该值即视为可学的有效轨迹（默认 0.7，不要求满分）")
+    ap.add_argument("--perfect-score", type=float, default=0.999, help="严格满分阈值（仅用于统计占比）")
     a = ap.parse_args()
 
     rows = [json.loads(l) for l in open(a.rollouts, encoding="utf-8")]
     print(f"读入轨迹 {len(rows)} 条")
+    # 分数分布（先看清数据长什么样，再决定阈值）
+    import statistics
+    scores = [r["score"] for r in rows]
+    buckets = {"满分(=1.0)": 0, ">=0.7": 0, "0.4~0.7": 0, "<0.4": 0}
+    for x in scores:
+        if x >= a.perfect_score: buckets["满分(=1.0)"] += 1
+        elif x >= 0.7: buckets[">=0.7"] += 1
+        elif x >= 0.4: buckets["0.4~0.7"] += 1
+        else: buckets["<0.4"] += 1
+    print(f"分数：均值 {statistics.mean(scores):.3f}  中位数 {statistics.median(scores):.3f}")
+    print("分布：" + "  ".join(f"{k}={v}" for k, v in buckets.items()))
 
     # ---------- 1) RFT：只留满分轨迹 ----------
     sft: list[dict] = []
@@ -68,8 +81,10 @@ def main() -> None:
 
     n_tasks = len(by_task)
     ok_tasks = sum(1 for g in by_task.values() if any(x["score"] >= a.pass_score for x in g))
-    print(f"\n任务数 {n_tasks}，其中至少有一条成功轨迹的：{ok_tasks}（{ok_tasks/n_tasks:.0%}）")
-    print("→ 这些成功轨迹就是 RFT 的种子数据；失败与成功并存的任务构成 DPO 偏好对。")
+    perfect = sum(1 for g in by_task.values() if any(x["score"] >= a.perfect_score for x in g))
+    print(f"\n任务数 {n_tasks}：其中满分任务 {perfect}（{perfect/n_tasks:.0%}）；"
+          f"得分 >= {a.pass_score} 的任务 {ok_tasks}（{ok_tasks/n_tasks:.0%}）")
+    print("→ 达标轨迹作为 RFT 种子；同题"优/劣并存"构成 DPO 偏好对。")
 
 
 if __name__ == "__main__":

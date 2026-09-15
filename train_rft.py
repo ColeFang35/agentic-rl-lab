@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 
 import torch
 from datasets import load_dataset
@@ -36,6 +37,11 @@ def main() -> None:
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
 
+    if not os.path.exists(a.data) or os.path.getsize(a.data) == 0:
+        raise SystemExit(
+            f"\n[!] 训练数据为空：{a.data}\n"
+            f"    说明当前没有达到阈值的成功轨迹。请先把 rollout 的 --n 调大（多采几条），"
+            f"或把 build_data.py 的 --pass-score 调低，再重新生成数据。\n")
     raw = load_dataset("json", data_files=a.data, split="train")
     # prompt 已经是渲染好的 chat 文本（含 system + few-shot），直接拼接
     def tok_fn(ex):

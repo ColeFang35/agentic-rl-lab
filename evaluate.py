@@ -33,7 +33,8 @@ def eval_model(model, tok, tasks: list[dict], max_new_tokens: int) -> tuple[dict
     rows = [rollout_once(model, tok, t, max_new_tokens) for t in tasks]
     n = len(rows)
     m = {
-        "success_rate": round(sum(1 for r in rows if r["score"] >= 0.999) / n, 3),
+        "perfect_rate": round(sum(1 for r in rows if r["score"] >= 0.999) / n, 3),   # 满分率
+        "pass_rate": round(sum(1 for r in rows if r["score"] >= 0.7) / n, 3),         # 达标率(>=0.7)
         "mean_reward": round(mean(r["score"] for r in rows), 3),
         "tool_name_acc": round(mean(r["detail"]["tool_name"] / 0.4 for r in rows), 3),
     }
@@ -66,8 +67,8 @@ def main() -> None:
         m, rows = eval_model(model, tok, tasks, a.max_new_tokens)
         results[tag] = m
         samples[tag] = rows[:3]
-        print(f"[{tag:>4}] 成功率 {m['success_rate']:.1%} | 平均奖励 {m['mean_reward']:.3f} "
-              f"| 工具名正确率 {m['tool_name_acc']:.1%}")
+        print(f"[{tag:>4}] 满分率 {m['perfect_rate']:.1%} | 达标率(>=0.7) {m['pass_rate']:.1%} "
+              f"| 平均奖励 {m['mean_reward']:.3f} | 工具名正确率 {m['tool_name_acc']:.1%}")
         del model
         torch.cuda.empty_cache()
 
@@ -76,7 +77,7 @@ def main() -> None:
             if tag in results:
                 results[f"{tag}_delta"] = {
                     k: round(results[tag][k] - results["base"][k], 3)
-                    for k in ("success_rate", "mean_reward", "tool_name_acc")}
+                    for k in ("perfect_rate", "pass_rate", "mean_reward", "tool_name_acc")}
                 print(f"\n[{tag} 相对基座] {results[f'{tag}_delta']}")
 
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
